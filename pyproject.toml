@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fms-hf-tuning"
+description = "Package for tuning genai models"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["foundation models", "ai"]
+license = {text = "Apache-2.0"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.38.2",
+    "accelerate>=0.27.0",
+    "aim>=3.18.1",
+    "datasets>=2.18.0",
+    "trl>=0.7.11",
+    "peft>=0.8.0",
+    "fire>=0.5.0"
+]
+dynamic = ["version"]
+
+[tool.setuptools]
+py-modules = ["tuning"]
+
+[project.scripts]
+tuning = "tuning.sft_trainer:main"
+
+[tool.black]
+line-length = 150
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+ignore = "E203, W503,"
+max-line-length = 150
