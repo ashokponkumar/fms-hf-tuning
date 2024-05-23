@@ -29,7 +29,8 @@ from transformers import (
     TrainerCallback,
 )
 from transformers.utils import logging
-from transformers import DataCollatorWithPadding
+from transformers import DataCollatorForSeq2Seq
+from transformers import DataCollatorWithPadding, Trainer
 from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
 import datasets
 import fire
@@ -204,7 +205,7 @@ def train(
     # FIXME: Instructlab - Hack
     if data_args.pretokenized:
         logger.info("Packing is set to True since the data is pretokenized")
-        data_collator = DataCollatorWithPadding(tokenizer=tokenizer, padding=True)
+        data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer)
         packing = train_args.packing
     elif train_args.packing:
         logger.info("Packing is set to True")
@@ -250,7 +251,7 @@ def train(
     if not data_args.pretokenized:
         formatted_train_dataset = json_dataset["train"].map(format_dataset)
     else:
-        formatted_train_dataset = json_dataset["train"].with_format("torch")
+        formatted_train_dataset = json_dataset["train"]
     logger.info("Training dataset length is %s", len(formatted_train_dataset))
 
     formatted_validation_dataset = None
@@ -259,25 +260,19 @@ def train(
         if not data_args.pretokenized:
             formatted_validation_dataset = json_dataset["validation"].map(format_dataset)
         else:
-            formatted_validation_dataset = json_dataset["validation"].with_format("torch")
+            formatted_validation_dataset = json_dataset["validation"]
         logger.info(
             "Validation dataset length is %s", len(formatted_validation_dataset)
         )
 
-    print(formatted_train_dataset)
-    trainer = SFTTrainer(
+    trainer = Trainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=formatted_train_dataset,
         eval_dataset=formatted_validation_dataset,
-        packing=packing,
         data_collator=data_collator,
-        dataset_text_field=data_args.dataset_text_field,
-        formatting_func = lambda x: print(x) or x,
         args=train_args,
-        max_seq_length=max_seq_length,
         callbacks=trainer_callbacks,
-        peft_config=peft_config,
     )
 
     # We track additional metrics and experiment metadata after trainer object creation
