@@ -29,6 +29,7 @@ from transformers import (
     TrainerCallback,
 )
 from transformers.utils import logging
+from transformers import DataCollatorWithPadding
 from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
 import datasets
 import fire
@@ -165,14 +166,6 @@ def train(
             }
         )
 
-    # TODO: near term - how response template ids are parsed out needs to be cleaned.
-    # The [2:] here applies if response template has \n prefix, it is needed to strip \n,
-    # otherwise template is not found. We will create issue to clean this out after we discuss
-    # data formats and collators we will support.
-    response_template_ids = tokenizer.encode(
-        data_args.response_template, add_special_tokens=False
-    )[2:]
-
     max_seq_length = min(train_args.max_seq_length, tokenizer.model_max_length)
     logger.info("Max sequence length is %s", max_seq_length)
     if train_args.max_seq_length > tokenizer.model_max_length:
@@ -208,7 +201,12 @@ def train(
     )
 
     # Configure the collator and validate args related to packing prior to formatting the dataset
-    if train_args.packing:
+    # FIXME: Instructlab - Hack
+    if data_args.pretokenized:
+        logger.info("Packing is set to True since the data is pretokenized")
+        data_collator = DataCollatorWithPadding(tokenizer=tokenizer, padding=True)
+        packing = train_args.packing
+    elif train_args.packing:
         logger.info("Packing is set to True")
         data_collator = None
         packing = True
@@ -220,6 +218,14 @@ def train(
             raise ValueError("Response template is None, needs to be set for training")
         if data_args.dataset_text_field is None:
             raise ValueError("Dataset_text_field is None, needs to be set for training")
+        # FIXME: Instructlab
+        # TODO: near term - how response template ids are parsed out needs to be cleaned.
+        # The [2:] here applies if response template has \n prefix, it is needed to strip \n,
+        # otherwise template is not found. We will create issue to clean this out after we discuss
+        # data formats and collators we will support.
+        response_template_ids = tokenizer.encode(
+            data_args.response_template, add_special_tokens=False
+        )[2:]
         data_collator = DataCollatorForCompletionOnlyLM(
             response_template_ids,
             tokenizer=tokenizer,
@@ -232,22 +238,33 @@ def train(
     if data_args.validation_data_path:
         data_files["validation"] = data_args.validation_data_path
 
-    format_dataset = lambda example: {  # pylint: disable=unnecessary-lambda-assignment
-        f"{data_args.dataset_text_field}": example[f"{data_args.dataset_text_field}"]
-        + tokenizer.eos_token
-    }
+    # FIXME: Instructlab - Hack
+    if not data_args.pretokenized:
+        format_dataset = lambda example: {  # pylint: disable=unnecessary-lambda-assignment
+            f"{data_args.dataset_text_field}": example[f"{data_args.dataset_text_field}"]
+            + tokenizer.eos_token
+        }
 
     json_dataset = datasets.load_dataset("json", data_files=data_files)
-    formatted_train_dataset = json_dataset["train"].map(format_dataset)
+    # FIXME: Instructlab - Hack
+    if not data_args.pretokenized:
+        formatted_train_dataset = json_dataset["train"].map(format_dataset)
+    else:
+        formatted_train_dataset = json_dataset["train"].with_format("torch")
     logger.info("Training dataset length is %s", len(formatted_train_dataset))
 
     formatted_validation_dataset = None
     if data_args.validation_data_path:
-        formatted_validation_dataset = json_dataset["validation"].map(format_dataset)
+        # FIXME: Instructlab - Hack
+        if not data_args.pretokenized:
+            formatted_validation_dataset = json_dataset["validation"].map(format_dataset)
+        else:
+            formatted_validation_dataset = json_dataset["validation"].with_format("torch")
         logger.info(
             "Validation dataset length is %s", len(formatted_validation_dataset)
         )
 
+    print(formatted_train_dataset)
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
@@ -256,6 +273,7 @@ def train(
         packing=packing,
         data_collator=data_collator,
         dataset_text_field=data_args.dataset_text_field,
+        formatting_func = lambda x: print(x) or x,
         args=train_args,
         max_seq_length=max_seq_length,
         callbacks=trainer_callbacks,
